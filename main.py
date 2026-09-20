@@ -122,6 +122,36 @@ def aggregate_era5_daily_dataframes(
     }
 
 
+def create_master_dataframe(
+    station_dataframe: pd.DataFrame,
+    era5_daily_dataframes: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Join central CONAGUA targets with daily ERA5 predictor variables."""
+    if len(era5_daily_dataframes) != 1:
+        raise ValueError(
+            "Se requiere exactamente un DataFrame diario de ERA5 para crear el "
+            "DataFrame maestro."
+        )
+    if "date" not in station_dataframe:
+        raise ValueError("El DataFrame de CONAGUA debe contener la columna date.")
+
+    era5_daily_dataframe = next(iter(era5_daily_dataframes.values()))
+    conagua_columns = {
+        column: f"conagua_{column}"
+        for column in station_dataframe.columns
+        if column != "date"
+    }
+    conagua_dataframe = station_dataframe.rename(columns=conagua_columns)
+
+    return conagua_dataframe.merge(
+        era5_daily_dataframe.reset_index(),
+        how="left",
+        left_on="date",
+        right_on="fecha_conagua",
+        validate="one_to_one",
+    )
+
+
 def print_era5_dataframes(dataframes: dict[str, pd.DataFrame]) -> None:
     """Print the first 15 rows of every local ERA5 DataFrame."""
     for filename, dataframe in dataframes.items():
@@ -131,6 +161,7 @@ def print_era5_dataframes(dataframes: dict[str, pd.DataFrame]) -> None:
 
 def main() -> None:
     """Download resources and print the stations nearest to the central station."""
+    era5_daily_dataframes: dict[str, pd.DataFrame] = {}
     if has_era5_resource():
         era5_netcdf_paths = extract_era5_netcdf_files(ERA5_RESOURCE_PATH)
         era5_dataframes = load_era5_dataframes(era5_netcdf_paths)
@@ -156,6 +187,12 @@ def main() -> None:
     combined_dataframe = combine_station_dataframes(station_dataframes.values())
 
     print(station_dataframes[central_station.station_id].head(15))
+    if era5_daily_dataframes:
+        master_df = create_master_dataframe(
+            station_dataframes[central_station.station_id], era5_daily_dataframes
+        )
+        print("\nPrimeras 15 filas del DataFrame maestro CONAGUA-ERA5:")
+        print(master_df.head(15))
 
     chart_path = create_weather_chart(
         combined_dataframe,
