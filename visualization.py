@@ -1,6 +1,7 @@
 """Interactive visualizations for daily climatological measurements."""
 
 import json
+from math import floor
 from pathlib import Path
 
 import pandas as pd
@@ -20,6 +21,8 @@ def create_weather_chart(
     combined_dataframe: pd.DataFrame,
     default_station_id: str,
     default_year: int,
+    millimeters_axis_upper_limit: float,
+    temperature_axis_upper_limit_c: float,
     output_path: Path = CHART_OUTPUT_PATH,
 ) -> Path:
     """Create an interactive dual-axis chart from daily station measurements."""
@@ -30,6 +33,10 @@ def create_weather_chart(
         raise ValueError(
             f"Faltan columnas requeridas para crear la gráfica: {missing_columns_text}"
         )
+    if millimeters_axis_upper_limit <= 0:
+        raise ValueError("El límite superior del eje de milímetros debe ser positivo.")
+    if temperature_axis_upper_limit_c <= 0:
+        raise ValueError("El límite superior del eje de temperatura debe ser positivo.")
 
     chart_dataframe = combined_dataframe[
         ["date", "station", *MEASUREMENT_COLUMNS]
@@ -39,6 +46,7 @@ def create_weather_chart(
     chart_dataframe["station"] = chart_dataframe["station"].astype(str)
     chart_dataframe["year"] = chart_dataframe["date"].dt.year
     chart_dataframe["date"] = chart_dataframe["date"].dt.strftime("%Y-%m-%d")
+    temperature_min = _temperature_axis_minimum(chart_dataframe)
 
     station_ids = sorted(chart_dataframe["station"].unique())
     if default_station_id not in station_ids:
@@ -64,6 +72,9 @@ def create_weather_chart(
         station_ids=station_ids,
         default_station_id=default_station_id,
         default_year=resolved_default_year,
+        millimeters_axis_upper_limit=millimeters_axis_upper_limit,
+        temperature_min=temperature_min,
+        temperature_axis_upper_limit_c=temperature_axis_upper_limit_c,
     )
     output_path.write_text(html, encoding="utf-8")
     return output_path
@@ -74,6 +85,9 @@ def _build_chart_html(
     station_ids: list[str],
     default_station_id: str,
     default_year: int,
+    millimeters_axis_upper_limit: float,
+    temperature_min: float,
+    temperature_axis_upper_limit_c: float,
 ) -> str:
     """Build a standalone HTML document for the weather chart."""
     return f"""<!doctype html>
@@ -89,7 +103,7 @@ def _build_chart_html(
       font-family: "Segoe UI", sans-serif;
     }}
     body {{ margin: 0; padding: 24px; }}
-    main {{ max-width: 1280px; margin: 0 auto; }}
+    main {{ max-width: 1800px; margin: 0 auto; }}
     h1 {{ margin: 0 0 20px; font-size: 1.5rem; font-weight: 650; }}
     .controls {{
       display: flex;
@@ -147,15 +161,19 @@ def _build_chart_html(
     const stationIds = {json.dumps(station_ids)};
     const defaultStationId = {json.dumps(default_station_id)};
     const defaultYear = {default_year};
+    const millimetersMax = {millimeters_axis_upper_limit};
+    const temperatureMin = {temperature_min};
+    const temperatureMax = {temperature_axis_upper_limit_c};
     const stationSelect = document.getElementById("station-select");
     const yearSelect = document.getElementById("year-select");
     const seriesControls = document.querySelectorAll("[data-series]");
+    const monthLabels = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
     const series = [
-      {{ key: "precipitation_mm", name: "Precipitación", color: "#1f77b4", axis: "y", unit: "mm" }},
-      {{ key: "evaporation_mm", name: "Evaporación", color: "#ff7f0e", axis: "y", unit: "mm" }},
-      {{ key: "maximum_temperature_c", name: "Temperatura máxima", color: "#d62728", axis: "y2", unit: "°C" }},
-      {{ key: "minimum_temperature_c", name: "Temperatura mínima", color: "#2ca02c", axis: "y2", unit: "°C" }},
+      {{ key: "precipitation_mm", name: "Precipitación", color: "#1f77b4", axis: "y", unit: "mm", type: "bar" }},
+      {{ key: "evaporation_mm", name: "Evaporación", color: "#ff7f0e", axis: "y", unit: "mm", type: "bar" }},
+      {{ key: "maximum_temperature_c", name: "Temperatura máxima", color: "#d62728", axis: "y2", unit: "°C", type: "scatter" }},
+      {{ key: "minimum_temperature_c", name: "Temperatura mínima", color: "#2ca02c", axis: "y2", unit: "°C", type: "scatter" }},
     ];
 
     function fillStationOptions() {{
@@ -190,30 +208,64 @@ def _build_chart_html(
       const records = measurements.filter(
         (record) => record.station === stationId && record.year === year
       );
+      const monthTicks = monthLabels.map(
+        (_, month) => `${{year}}-${{String(month + 1).padStart(2, "0")}}-01`
+      );
       const visibleSeries = new Set(
         [...seriesControls].filter((control) => control.checked).map((control) => control.dataset.series)
       );
-      const traces = series.map((definition) => ({{
-        x: records.map((record) => record.date),
-        y: records.map((record) => record[definition.key]),
-        type: "scatter",
-        mode: "lines",
-        name: definition.name,
-        yaxis: definition.axis,
-        visible: visibleSeries.has(definition.key),
-        line: {{ color: definition.color, width: 1.8 }},
-        hovertemplate: `%{{x}}<br>${{definition.name}}: %{{y:.2f}} ${{definition.unit}}<extra></extra>`,
-      }}));
+      const traces = series.map((definition) => {{
+        const trace = {{
+          x: records.map((record) => record.date),
+          y: records.map((record) => record[definition.key]),
+          type: definition.type,
+          name: definition.name,
+          yaxis: definition.axis,
+          visible: visibleSeries.has(definition.key),
+          hovertemplate: `%{{x}}<br>${{definition.name}}: %{{y:.2f}} ${{definition.unit}}<extra></extra>`,
+        }};
+
+        if (definition.type === "bar") {{
+          trace.marker = {{ color: definition.color, opacity: 0.78 }};
+        }} else {{
+          trace.mode = "lines";
+          trace.line = {{ color: definition.color, width: 1.8, dash: "dot" }};
+        }}
+
+        return trace;
+      }});
 
       Plotly.react("weather-chart", traces, {{
         title: `Estación ${{stationId}} | ${{year}}`,
         paper_bgcolor: "#ffffff",
         plot_bgcolor: "#ffffff",
+        barmode: "group",
         margin: {{ l: 70, r: 70, t: 60, b: 65 }},
         hovermode: "x unified",
-        xaxis: {{ title: "Fecha", showgrid: true, gridcolor: "#e5e9e7" }},
-        yaxis: {{ title: "Milímetros (mm)", showgrid: true, gridcolor: "#e5e9e7", zeroline: true }},
-        yaxis2: {{ title: "Temperatura (°C)", overlaying: "y", side: "right", showgrid: false, zeroline: false }},
+        xaxis: {{
+          title: "Fecha",
+          range: [`${{year}}-01-01`, `${{year}}-12-31 23:59:59`],
+          tickmode: "array",
+          tickvals: monthTicks,
+          ticktext: monthLabels,
+          showgrid: true,
+          gridcolor: "#e5e9e7",
+        }},
+        yaxis: {{
+          title: "Milímetros (mm)",
+          range: [0, millimetersMax],
+          showgrid: true,
+          gridcolor: "#e5e9e7",
+          zeroline: true,
+        }},
+        yaxis2: {{
+          title: "Temperatura (°C)",
+          range: [temperatureMin, temperatureMax],
+          overlaying: "y",
+          side: "right",
+          showgrid: false,
+          zeroline: false,
+        }},
         legend: {{ orientation: "h", y: 1.12 }},
       }}, {{ responsive: true, displaylogo: false }});
     }}
@@ -228,3 +280,12 @@ def _build_chart_html(
 </body>
 </html>
 """
+
+
+def _temperature_axis_minimum(dataframe: pd.DataFrame) -> float:
+    """Return the rounded lower temperature limit across the complete dataset."""
+    minimum = dataframe[["maximum_temperature_c", "minimum_temperature_c"]].min().min()
+    if pd.isna(minimum):
+        return 0.0
+
+    return float(floor(minimum))

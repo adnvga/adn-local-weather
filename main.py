@@ -12,7 +12,9 @@ from visualization import create_weather_chart
 
 CENTRAL_STATION_ID = "13105"
 SEARCH_RADIUS_KM = 15.0
-DEFAULT_CHART_YEAR = 2001
+DEFAULT_CHART_YEAR = 2025
+MILLIMETERS_AXIS_UPPER_LIMIT = 70.0
+TEMPERATURE_AXIS_UPPER_LIMIT_C = 100.0
 
 
 def main() -> None:
@@ -33,6 +35,8 @@ def main() -> None:
         combined_dataframe,
         default_station_id=central_station.station_id,
         default_year=DEFAULT_CHART_YEAR,
+        millimeters_axis_upper_limit=MILLIMETERS_AXIS_UPPER_LIMIT,
+        temperature_axis_upper_limit_c=TEMPERATURE_AXIS_UPPER_LIMIT_C,
     )
 
     print(
