@@ -1,11 +1,10 @@
-"""Generic project entry point."""
+"""Download the climatological daily files for Hidalgo stations."""
 
-import numpy
-import pandas
-
+from utils import download_files
 
 def main() -> None:
-    """Run the application."""
+    """Download the available climatological files."""
+    download_files()
 
 
 if __name__ == "__main__":
