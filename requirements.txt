@@ -3,3 +3,5 @@ cdsapi>=0.7
 numpy>=1.26
 pandas>=2.0
 plotly>=5.0
+netCDF4>=1.7
+xarray>=2024.0

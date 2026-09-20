@@ -1,5 +1,13 @@
 """Download and load the climatological daily files for Hidalgo stations."""
 
+from pathlib import Path
+from shutil import copyfileobj
+from zipfile import BadZipFile, ZipFile
+
+import pandas as pd
+import xarray as xr
+
+from download_era5 import ERA5_RESOURCE_PATH, has_era5_resource
 from utils import (
     combine_station_dataframes,
     download_files,
@@ -17,8 +25,65 @@ MILLIMETERS_AXIS_UPPER_LIMIT = 70.0
 TEMPERATURE_AXIS_UPPER_LIMIT_C = 100.0
 
 
+def extract_era5_netcdf_files(archive_path: Path) -> list[Path]:
+    """Extract each NetCDF file in an ERA5 archive and return local paths."""
+    extraction_dir = archive_path.with_suffix("")
+    extraction_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with ZipFile(archive_path) as archive:
+            netcdf_entries = [
+                entry
+                for entry in archive.infolist()
+                if not entry.is_dir() and entry.filename.lower().endswith(".nc")
+            ]
+            if not netcdf_entries:
+                raise ValueError(f"El archivo no contiene archivos NetCDF: {archive_path}")
+
+            extracted_paths: list[Path] = []
+            for entry in netcdf_entries:
+                destination = extraction_dir / Path(entry.filename).name
+                if (
+                    not destination.is_file()
+                    or destination.stat().st_size != entry.file_size
+                ):
+                    with archive.open(entry) as source, destination.open("wb") as target:
+                        copyfileobj(source, target)
+                extracted_paths.append(destination)
+    except BadZipFile as error:
+        raise ValueError(f"El recurso ERA5 no es un archivo ZIP válido: {archive_path}") from error
+
+    return extracted_paths
+
+
+def load_era5_dataframes(netcdf_paths: list[Path]) -> dict[str, pd.DataFrame]:
+    """Load every extracted ERA5 NetCDF file into a pandas DataFrame."""
+    dataframes = {}
+    for netcdf_path in netcdf_paths:
+        with xr.open_dataset(netcdf_path) as dataset:
+            dataframes[netcdf_path.name] = dataset.to_dataframe()
+    return dataframes
+
+
+def print_era5_dataframes(dataframes: dict[str, pd.DataFrame]) -> None:
+    """Print the first 15 rows of every local ERA5 DataFrame."""
+    for filename, dataframe in dataframes.items():
+        print(f"\nERA5: {filename}")
+        print(dataframe.head(15))
+
+
 def main() -> None:
     """Download resources and print the stations nearest to the central station."""
+    if has_era5_resource():
+        era5_netcdf_paths = extract_era5_netcdf_files(ERA5_RESOURCE_PATH)
+        era5_dataframes = load_era5_dataframes(era5_netcdf_paths)
+        print_era5_dataframes(era5_dataframes)
+    else:
+        print(
+            "No se encontró el recurso ERA5: "
+            f"{ERA5_RESOURCE_PATH}. Ejecuta download_era5.py para descargarlo."
+        )
+
     download_files()
     stations = load_stations()
     central_station = find_station(stations, CENTRAL_STATION_ID)
