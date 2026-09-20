@@ -1,4 +1,5 @@
 # Example dependencies imported by main.py.
+cdsapi>=0.7
 numpy>=1.26
 pandas>=2.0
 plotly>=5.0
