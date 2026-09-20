@@ -1,6 +1,8 @@
 """Utilities for managing local climatological resources."""
 
 from dataclasses import dataclass
+from collections.abc import Iterable
+from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
 from time import sleep
 from urllib.error import HTTPError, URLError
@@ -17,6 +19,7 @@ RESOURCES_DIR = Path(__file__).resolve().parent / "resources"
 DOWNLOAD_ATTEMPTS = 4
 RETRYABLE_STATUS_CODES = { 502, 503, 504}
 REQUEST_INTERVAL_SECONDS = 0.4
+EARTH_RADIUS_KM = 6_371.0088
 KNOWN_MISSING_FILES = frozenset(
     {
         "dia13023.txt",
@@ -131,6 +134,50 @@ def load_stations(resources_dir: Path = RESOURCES_DIR) -> list[Station]:
         parse_station(resource_path)
         for resource_path in sorted(resources_dir.glob("dia*.txt"))
     ]
+
+
+def find_station(stations: Iterable[Station], station_id: str) -> Station:
+    """Return the station identified by its climatological station code."""
+    for station in stations:
+        if station.station_id == station_id:
+            return station
+
+    raise ValueError(f"No se encontró la estación: {station_id}")
+
+
+def find_stations_within_radius(
+    central_station: Station,
+    stations: Iterable[Station],
+    radius_km: float,
+) -> list[tuple[Station, float]]:
+    """Return other stations in a radius, sorted from nearest to farthest."""
+    if radius_km < 0:
+        raise ValueError("El radio no puede ser negativo.")
+
+    nearby_stations = []
+    for station in stations:
+        if station.station_id == central_station.station_id:
+            continue
+
+        distance_km = distance_between_stations(central_station, station)
+        if distance_km <= radius_km:
+            nearby_stations.append((station, distance_km))
+
+    return sorted(nearby_stations, key=lambda station_with_distance: station_with_distance[1])
+
+
+def distance_between_stations(first_station: Station, second_station: Station) -> float:
+    """Calculate the great-circle distance between two stations in kilometers."""
+    latitude_delta = radians(second_station.latitude - first_station.latitude)
+    longitude_delta = radians(second_station.longitude - first_station.longitude)
+    first_latitude = radians(first_station.latitude)
+    second_latitude = radians(second_station.latitude)
+
+    haversine = (
+        sin(latitude_delta / 2) ** 2
+        + cos(first_latitude) * cos(second_latitude) * sin(longitude_delta / 2) ** 2
+    )
+    return 2 * EARTH_RADIUS_KM * asin(sqrt(haversine))
 
 
 def parse_station(resource_path: Path) -> Station:
