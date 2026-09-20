@@ -8,9 +8,11 @@ from utils import (
     load_station_dataframes,
     load_stations,
 )
+from visualization import create_weather_chart
 
 CENTRAL_STATION_ID = "13105"
 SEARCH_RADIUS_KM = 15.0
+DEFAULT_CHART_YEAR = 2001
 
 
 def main() -> None:
@@ -27,8 +29,11 @@ def main() -> None:
     ]
     station_dataframes = load_station_dataframes(selected_stations)
     combined_dataframe = combine_station_dataframes(station_dataframes.values())
-
-    print(station_dataframes[central_station.station_id].head(15))
+    chart_path = create_weather_chart(
+        combined_dataframe,
+        default_station_id=central_station.station_id,
+        default_year=DEFAULT_CHART_YEAR,
+    )
 
     print(
         "Estación central: "
@@ -45,6 +50,7 @@ def main() -> None:
         f"DataFrames creados: {len(station_dataframes)} | "
         f"Registros combinados: {len(combined_dataframe)}"
     )
+    print(f"Gráfica interactiva creada: {chart_path}")
 
 
 if __name__ == "__main__":
