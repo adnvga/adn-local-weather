@@ -23,6 +23,7 @@ SEARCH_RADIUS_KM = 15.0
 DEFAULT_CHART_YEAR = 2025
 MILLIMETERS_AXIS_UPPER_LIMIT = 70.0
 TEMPERATURE_AXIS_UPPER_LIMIT_C = 100.0
+CONAGUA_UTC_OFFSET_HOURS = 6
 
 
 def extract_era5_netcdf_files(archive_path: Path) -> list[Path]:
@@ -57,12 +58,29 @@ def extract_era5_netcdf_files(archive_path: Path) -> list[Path]:
 
 
 def load_era5_dataframes(netcdf_paths: list[Path]) -> dict[str, pd.DataFrame]:
-    """Load every extracted ERA5 NetCDF file into a pandas DataFrame."""
+    """Load non-wave extracted ERA5 NetCDF files into pandas DataFrames."""
     dataframes = {}
     for netcdf_path in netcdf_paths:
+        if "timeseries-wav" in netcdf_path.name.lower():
+            continue
+
         with xr.open_dataset(netcdf_path) as dataset:
-            dataframes[netcdf_path.name] = dataset.to_dataframe()
+            dataframes[netcdf_path.name] = add_conagua_time_columns(
+                dataset.to_dataframe()
+            )
     return dataframes
+
+
+def add_conagua_time_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Add fixed UTC-6 timestamps and daily dates aligned with CONAGUA data."""
+    if not isinstance(dataframe.index, pd.DatetimeIndex):
+        raise ValueError("El DataFrame ERA5 debe tener un índice de fecha y hora.")
+
+    dataframe = dataframe.copy()
+    utc_minus_6 = dataframe.index - pd.Timedelta(hours=CONAGUA_UTC_OFFSET_HOURS)
+    dataframe["era5_utc_minus_6"] = utc_minus_6
+    dataframe["fecha_conagua"] = utc_minus_6.normalize()
+    return dataframe
 
 
 def print_era5_dataframes(dataframes: dict[str, pd.DataFrame]) -> None:
