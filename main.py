@@ -1,9 +1,11 @@
 """Download and load the climatological daily files for Hidalgo stations."""
 
 from utils import (
+    combine_station_dataframes,
     download_files,
     find_station,
     find_stations_within_radius,
+    load_station_dataframes,
     load_stations,
 )
 
@@ -19,6 +21,14 @@ def main() -> None:
     nearby_stations = find_stations_within_radius(
         central_station, stations, SEARCH_RADIUS_KM
     )
+    selected_stations = [
+        central_station,
+        *(station for station, _ in nearby_stations),
+    ]
+    station_dataframes = load_station_dataframes(selected_stations)
+    combined_dataframe = combine_station_dataframes(station_dataframes.values())
+
+    print(station_dataframes[central_station.station_id].head(15))
 
     print(
         "Estación central: "
@@ -31,6 +41,10 @@ def main() -> None:
             f"{station.station_id} - {station.name} "
             f"({station.municipality}, {station.state}) | {distance_km:.2f} km"
         )
+    print(
+        f"DataFrames creados: {len(station_dataframes)} | "
+        f"Registros combinados: {len(combined_dataframe)}"
+    )
 
 
 if __name__ == "__main__":

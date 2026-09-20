@@ -8,6 +8,8 @@ from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import pandas as pd
+
 
 BASE_URL = (
     "https://smn.conagua.gob.mx/tools/RESOURCES/Normales_Climatologicas/"
@@ -53,6 +55,13 @@ STATION_FIELDS = {
     "LONGITUD": "longitude",
     "ALTITUD": "altitude_meters",
 }
+DAILY_DATA_COLUMNS = [
+    "date",
+    "precipitation_mm",
+    "evaporation_mm",
+    "maximum_temperature_c",
+    "minimum_temperature_c",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +189,48 @@ def distance_between_stations(first_station: Station, second_station: Station) -
     return 2 * EARTH_RADIUS_KM * asin(sqrt(haversine))
 
 
+def load_station_dataframes(
+    stations: Iterable[Station], resources_dir: Path = RESOURCES_DIR
+) -> dict[str, pd.DataFrame]:
+    """Load one daily-measurement DataFrame for each supplied station."""
+    return {
+        station.station_id: load_station_dataframe(station, resources_dir)
+        for station in stations
+    }
+
+
+def load_station_dataframe(
+    station: Station, resources_dir: Path = RESOURCES_DIR
+) -> pd.DataFrame:
+    """Load the daily measurements for one station into a DataFrame."""
+    resource_path = resources_dir / station.filename
+    data_start_line = _find_daily_data_start_line(resource_path)
+    dataframe = pd.read_csv(
+        resource_path,
+        sep="\t",
+        skiprows=data_start_line,
+        header=None,
+        names=DAILY_DATA_COLUMNS,
+        na_values=["NULO"],
+    ).dropna(how="all")
+
+    dataframe["date"] = pd.to_datetime(
+        dataframe["date"], format="%Y-%m-%d", errors="coerce"
+    )
+    for column in DAILY_DATA_COLUMNS[1:]:
+        dataframe[column] = pd.to_numeric(dataframe[column], errors="coerce")
+
+    dataframe["station"] = station.station_id
+    return dataframe
+
+
+def combine_station_dataframes(
+    station_dataframes: Iterable[pd.DataFrame],
+) -> pd.DataFrame:
+    """Combine individual station DataFrames into one indexed table."""
+    return pd.concat(station_dataframes, ignore_index=True)
+
+
 def parse_station(resource_path: Path) -> Station:
     """Extract station metadata from the header of one climatology resource."""
     metadata: dict[str, str] = {}
@@ -223,3 +274,14 @@ def _parse_number(value: str, resource_path: Path) -> float:
         raise ValueError(
             f"{resource_path.name} contiene un valor numérico inválido: {value!r}"
         ) from error
+
+
+def _find_daily_data_start_line(resource_path: Path) -> int:
+    """Return the first daily record line, after headers and measurement units."""
+    for line_number, line in enumerate(
+        resource_path.read_text(encoding="utf-8").splitlines()
+    ):
+        if line.strip().startswith("FECHA"):
+            return line_number + 2
+
+    raise ValueError(f"{resource_path.name} no contiene el encabezado de mediciones.")
