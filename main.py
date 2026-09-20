@@ -24,6 +24,8 @@ DEFAULT_CHART_YEAR = 2025
 MILLIMETERS_AXIS_UPPER_LIMIT = 70.0
 TEMPERATURE_AXIS_UPPER_LIMIT_C = 100.0
 CONAGUA_UTC_OFFSET_HOURS = 6
+ERA5_TIME_COLUMN = "era5_utc_minus_6"
+ERA5_COORDINATE_COLUMNS = {"latitude", "longitude"}
 
 
 def extract_era5_netcdf_files(archive_path: Path) -> list[Path]:
@@ -83,6 +85,43 @@ def add_conagua_time_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
     return dataframe
 
 
+def aggregate_era5_daily(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Summarize every ERA5 parameter by local UTC-6 calendar day."""
+    if ERA5_TIME_COLUMN not in dataframe:
+        raise ValueError(f"Falta la columna de tiempo ERA5: {ERA5_TIME_COLUMN}")
+
+    parameter_columns = [
+        column
+        for column in dataframe.select_dtypes(include="number").columns
+        if column not in ERA5_COORDINATE_COLUMNS
+    ]
+    if not parameter_columns:
+        raise ValueError("El DataFrame ERA5 no contiene parámetros numéricos.")
+
+    daily_dataframe = (
+        dataframe.assign(
+            fecha_conagua=pd.to_datetime(dataframe[ERA5_TIME_COLUMN]).dt.normalize()
+        )
+        .groupby("fecha_conagua")[parameter_columns]
+        .agg(["mean", "min", "max"])
+    )
+    daily_dataframe.columns = [
+        f"{parameter}_{aggregation}"
+        for parameter, aggregation in daily_dataframe.columns.to_flat_index()
+    ]
+    return daily_dataframe
+
+
+def aggregate_era5_daily_dataframes(
+    dataframes: dict[str, pd.DataFrame],
+) -> dict[str, pd.DataFrame]:
+    """Create one local UTC-6 daily ERA5 dataset for each source DataFrame."""
+    return {
+        filename: aggregate_era5_daily(dataframe)
+        for filename, dataframe in dataframes.items()
+    }
+
+
 def print_era5_dataframes(dataframes: dict[str, pd.DataFrame]) -> None:
     """Print the first 15 rows of every local ERA5 DataFrame."""
     for filename, dataframe in dataframes.items():
@@ -95,7 +134,8 @@ def main() -> None:
     if has_era5_resource():
         era5_netcdf_paths = extract_era5_netcdf_files(ERA5_RESOURCE_PATH)
         era5_dataframes = load_era5_dataframes(era5_netcdf_paths)
-        print_era5_dataframes(era5_dataframes)
+        era5_daily_dataframes = aggregate_era5_daily_dataframes(era5_dataframes)
+        print_era5_dataframes(era5_daily_dataframes)
     else:
         print(
             "No se encontró el recurso ERA5: "
@@ -114,6 +154,9 @@ def main() -> None:
     ]
     station_dataframes = load_station_dataframes(selected_stations)
     combined_dataframe = combine_station_dataframes(station_dataframes.values())
+
+    print(station_dataframes[central_station.station_id].head(15))
+
     chart_path = create_weather_chart(
         combined_dataframe,
         default_station_id=central_station.station_id,
