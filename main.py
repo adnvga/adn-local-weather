@@ -1,10 +1,13 @@
-"""Download the climatological daily files for Hidalgo stations."""
+"""Download and load the climatological daily files for Hidalgo stations."""
 
-from utils import download_files
+from utils import Station, download_files, load_stations
 
-def main() -> None:
-    """Download the available climatological files."""
+
+def main() -> list[Station]:
+    """Download the available climatological files and load their stations."""
     download_files()
+    stations = load_stations()
+    print(stations)
 
 
 if __name__ == "__main__":
